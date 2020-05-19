@@ -1,0 +1,222 @@
+version: 2.1
+
+
+orbs:
+  slack: circleci/slack@3.3.0
+
+
+build: &build
+  docker:
+    - image: "circleci/python:3.6-node"
+  steps:
+    - attach_workspace:
+        at: .
+    - run: echo $SERVERLESS_STAGE > stage_flag
+    - restore_cache:
+        key: package-{{ checksum "stage_flag" }}-{{ .Environment.CIRCLE_SHA1 }}
+    - run:
+        name: Build Runtime Artifact
+        command: |
+          export PATH=./node_modules/.bin:$PATH
+          serverless package --package .serverless
+        environment:
+          SLS_DEBUG: "*"
+    - save_cache:
+        key: package-{{ checksum "stage_flag" }}-{{ .Environment.CIRCLE_SHA1 }}
+        paths:
+          - .serverless
+    - persist_to_workspace:
+        root: .
+        paths:
+          - .serverless
+
+deploy: &deploy
+  docker:
+    - image: "circleci/node:latest"
+  steps:
+    - attach_workspace:
+        at: .
+    - run:
+        name: Deploy
+        command: |
+          export PATH=./node_modules/.bin:$PATH
+          serverless deploy --package .serverless --force
+        environment:
+          SLS_DEBUG: "*"
+
+
+jobs:
+  checkout_code:
+    docker:
+      - image: "circleci/python:3.6"
+    steps:
+      - restore_cache:
+          key: source-{{ .Branch }}-{{ .Environment.CIRCLE_SHA1 }}
+      - checkout
+      - save_cache:
+          key: source-{{ .Branch }}-{{ .Environment.CIRCLE_SHA1 }}
+          paths:
+            - .
+      - persist_to_workspace:
+          root: .
+          paths:
+            - .
+
+  prepare_serverless:
+    docker:
+      - image: "circleci/node:latest"
+    steps:
+      - attach_workspace:
+          at: .
+      - restore_cache:
+          key: serverless-dependencies-{{ checksum "package-lock.json" }}
+      - run:
+          name: Install Serverless and dependencies
+          command: npm ci
+      - run:
+          name: Audit NPM-installed dependencies for vulnerabilities
+          command: npm audit
+      - save_cache:
+          key: serverless-dependencies-{{ checksum "package-lock.json" }}
+          paths:
+            - node_modules
+      - persist_to_workspace:
+          root: .
+          paths:
+            - node_modules
+
+  prepare_runtime:
+    docker:
+      - image: "circleci/python:3.6"
+    steps:
+      - attach_workspace:
+          at: .
+      - restore_cache:
+          key: runtime-dependencies-{{ .Branch }}-{{ checksum "Pipfile.lock" }}
+      - run:
+          name: Install Python dependencies
+          command: |
+            python -m pip install --user --upgrade pip
+            pip install --user --upgrade pipenv
+            pipenv sync --dev
+          environment:
+            PIPENV_VENV_IN_PROJECT: 1
+            PIPENV_YES: true
+            VIRTUALENV_SEEDER: pip
+      - save_cache:
+          key: runtime-dependencies-{{ .Branch }}-{{ checksum "Pipfile.lock" }}
+          paths:
+            - .local
+            - .venv
+      - persist_to_workspace:
+          root: .
+          paths:
+            - .local
+            - .venv
+
+  safety_check:
+    docker:
+      - image: "circleci/python:3.6"
+    steps:
+      - checkout
+      - run:
+          name: Check dependency safety
+          command: pipenv check
+
+  test:
+    docker:
+      - image: "circleci/python:3.6"
+    steps:
+      - attach_workspace:
+          at: .
+      - run:
+          name: Run unit tests
+          command: pipenv run python -m pytest
+
+  build_preprod:
+    <<: *build
+    environment:
+      SERVERLESS_REGION: "us-west-2"
+      SERVERLESS_STAGE: "preprod"
+
+  build_prod:
+    <<: *build
+    environment:
+      SERVERLESS_REGION: "us-west-2"
+      SERVERLESS_STAGE: "prod"
+
+  deploy_preprod:
+    <<: *deploy
+    environment:
+      SERVERLESS_REGION: "us-west-2"
+      SERVERLESS_STAGE: "preprod"
+
+  deploy_prod:
+    <<: *deploy
+    environment:
+      SERVERLESS_REGION: "us-west-2"
+      SERVERLESS_STAGE: "prod"
+
+
+workflows:
+  version: 2
+  build-test:
+    jobs:
+      - checkout_code
+      - prepare_serverless:
+          requires:
+            - checkout_code
+      - prepare_runtime:
+          requires:
+            - checkout_code
+      - test:
+          requires:
+            - prepare_runtime
+      - safety_check:
+          requires:
+            - prepare_runtime
+      - build_preprod:
+          context: external_serverless_circleci_preprod
+          requires:
+            - prepare_serverless
+            - safety_check
+      - deploy_preprod:
+          context: external_serverless_circleci_preprod
+          filters:
+            branches:
+              only: master
+          requires:
+            - build_preprod
+            - test
+      - manual_testing:
+          filters:
+            branches:
+             only: master
+          requires:
+            - deploy_preprod
+          type: "approval"
+      - slack/approval-notification:
+          filters:
+            branches:
+              only: master
+          requires:
+            - deploy_preprod
+          message: >
+            Changes to $CIRCLE_PROJECT_REPONAME have been deployed to Staging.
+            Please review and either approve the changes in CircleCI
+            or notify an engineer if the changes are rejected.
+          mentions: ''
+      - build_prod:
+          context: external_serverless_circleci_prod
+          filters:
+            branches:
+              only: master
+          requires:
+            - manual_testing
+      - deploy_prod:
+          context: external_serverless_circleci_prod
+          filters:
+            branches:
+              only: master
+          requires:
+            - build_prod

@@ -1,0 +1,249 @@
+service:
+  name: ${self:custom.prefix}example
+
+
+package:
+  include:
+    - "src/**"
+    - "common/**"
+
+
+plugins:
+  - serverless-aws-documentation
+  - serverless-iam-roles-per-function
+  - serverless-plugin-bind-deployment-id
+  - serverless-python-requirements
+  - serverless-reqvalidator-plugin
+
+
+custom:
+  prefix: ${opt:prefix, ''}
+  derived: "${file(./sls_custom/stage_derived/${self:provider.stage}.yml):}"
+  documentation: "${file(./swagger_api_models.yml):}"
+
+  api_gateway_log_full_execution_data: "${self:custom.derived.api_gateway_log_full_execution_data}"
+  enable_tracing: "${self:custom.derived.enable_tracing}"
+  thor_secret_key_path: "${self:custom.derived.thor_secret_key_path}"
+  sentry_dsn: "${self:custom.derived.sentry_dsn}"
+
+  pythonRequirements:
+    usePipenv: true
+    usePoetry: false
+    dockerizePip: non-linux
+    dockerImage: lambci/lambda:build-python3.6
+    slim: true
+    useStaticCache: true
+    useDownloadCache: true
+
+  authorizer_config:
+    name: IsAuthenticatedInThorAuthorizer
+    resultTtlInSeconds: 3600
+    identitySource: method.request.header.Authorization
+    identityValidationExpression: Bearer\s+.+
+    type: token
+
+
+provider:
+  name: aws
+  stage: ${opt:stage, env:SERVERLESS_STAGE, "sandbox"}
+  region: ${opt:region, env:SERVERLESS_REGION, "us-west-2"}
+  logRetentionInDays: 30
+  runtime: python3.6
+
+  tags:
+
+  logs:
+    restApi:
+      accessLogging: true
+      executionLogging: true
+      fullExecutionData: ${self:custom.api_gateway_log_full_execution_data}
+      level: ERROR
+
+  tracing:
+    apiGateway: ${self:custom.enable_tracing}
+    lambda: ${self:custom.enable_tracing}
+
+  iamRoleStatements:
+    -
+      Effect: Allow
+      Action:
+        - ssm:GetParameter
+        - ssm:GetParameters
+        - ssm:GetParametersByPath
+      Resource:
+        - "arn:aws:ssm:*:#{AWS::AccountId}:parameter/${self:service}/*"
+        - "arn:aws:ssm:*:#{AWS::AccountId}:parameter${self:custom.thor_secret_key_path}"
+    -
+      Effect: Allow
+      Action:
+        - kms:Decrypt
+        - kms:DescribeKey
+      Resource:
+        - "arn:aws:kms:*:#{AWS::AccountId}:key/*"
+        - "arn:aws:ssm:*:#{AWS::AccountId}:parameter/${self:service.name}/*"
+    -
+      Effect: Allow
+      Action:
+        - xray:PutTraceSegments
+        - xray:PutTelemetryRecords
+      Resource: "*"
+
+  environment:
+    EVENT_BRIDGE_SOURCE: "com.divvydose.${self:service.name}:${self:provider.stage}"
+    LOG_LEVEL: ${self:custom.derived.log_level}
+    SENTRY_DSN: "${self:custom.sentry_dsn}"
+    THOR_API_SECRET_KEY__SSM_KEY: ${self:custom.thor_secret_key_path}
+    TZ: UTC
+
+
+functions:
+  IsAuthenticatedInThorAuthorizer:
+    handler: src.handlers.authorize_for_authenticated_thor_token
+    description: Authorizes access to this service if the user has a valid Thor-issued JWT
+
+  HttpGetGreeting:
+    handler: src.handlers.get_greeting__http
+    memorySize: 128
+    description: Gets a greeting
+    events:
+      -
+        http:
+          path: "v1/greeting"
+          method: get
+          cors: ${self:custom.derived.cors_config}
+          request:
+            parameters:
+              querystrings:
+                person: false
+          authorizer: ${self:custom.authorizer_config}
+          documentation:
+            summary: "Greeting"
+            description: "Generates a greeting, optionally tailored to a specified person"
+            queryParams:
+              -
+                name: "person"
+                description: A person to greet
+            methodResponses:
+              -
+                statusCode: "200"
+                responseModels:
+                  "application/json": "Greeting"
+              -
+                statusCode: "400"
+                responseModels:
+                  "application/json": "ErrorResponse"
+              -
+                statusCode: "403"
+                responseModels:
+                  "application/json": "ErrorResponse"
+
+resources:
+  Resources:
+    ApiGatewayStage:
+      Type: "AWS::ApiGateway::Stage"
+      Properties:
+        StageName: ${self:provider.stage}
+        DeploymentId: "#{__deployment__}"
+        RestApiId: "#{ApiGatewayRestApi}"
+        MethodSettings:
+          -
+            ResourcePath: "/*"
+            HttpMethod: "*"
+            LoggingLevel: INFO
+            DataTraceEnabled: true
+            MetricsEnabled: true
+
+    GatewayResponseDefault4XX:
+      Type: 'AWS::ApiGateway::GatewayResponse'
+      Properties:
+        ResponseParameters:
+          gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+          gatewayresponse.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+        ResponseType: DEFAULT_4XX
+        RestApiId: '#{ApiGatewayRestApi}'
+
+    RequestFullValidator:
+      Type: "AWS::ApiGateway::RequestValidator"
+      Properties:
+        RestApiId: '#{ApiGatewayRestApi}'
+        ValidateRequestBody: true
+        ValidateRequestParameters: true
+
+
+  Outputs:
+    ServiceBaseUrl:
+      Description: Base URL for the ${self:service.name} API
+      Value: "https://#{ApiGatewayCustomDomainName}"
+      Export:
+        Name: ${self:custom.stack_export_prefix}:BaseUrl
+
+
+# --------------------
+# Edit with caution...
+# --------------------
+<<<:
+  -
+    frameworkVersion: ">=1.47.0 <2.0.0"
+  -
+    plugins:
+      - serverless-pseudo-parameters
+  -
+    custom:
+      stack_export_prefix: ${self:service.name}:${self:provider.stage}
+      hosted_zone_domain_name: "${self:custom.derived.hosted_zone_domain_name}"
+      service_domain_name: "${self:service.name}.${self:custom.hosted_zone_domain_name}"
+      regional_certificate_ids: ${self:custom.derived.regional_acm_certificate_ids}
+      current_regional_certificate_id: "${self:custom.regional_certificate_ids.${self:provider.region}}"
+  -
+    provider:
+      stackName: "${self:service.name}-${self:provider.stage}"
+      deploymentBucket:
+        name: "divvydose-serverless-deployments-${self:provider.stage}"
+        serverSideEncryption: AES256
+      environment:
+        APP_NAME: ${self:service}
+      tags:
+        service: ${self:service.name}
+        stage: ${self:provider.stage}
+      stackTags:
+        service: ${self:service.name}
+        stage: ${self:provider.stage}
+        Name: ${self:provider.stackName}
+  -
+    package:
+      exclude:
+        - "**/**"
+      include:
+      - "!**/*.pyc"
+  -
+    resources:
+      Resources:
+        ApiGatewayBasePathMapping:
+          Type: AWS::ApiGateway::BasePathMapping
+          Properties:
+            DomainName: "#{ApiGatewayCustomDomainName}"
+            RestApiId:  "#{ApiGatewayRestApi}"
+            Stage:  "#{ApiGatewayStage}"
+
+        ApiGatewayCustomDomainName:
+          Type: "AWS::ApiGateway::DomainName"
+          Properties:
+            DomainName: "${self:custom.service_domain_name}"
+            EndpointConfiguration:
+              Types:
+                - "REGIONAL"
+            RegionalCertificateArn: >-
+              arn:aws:acm:${self:provider.region}:#{AWS::AccountId}:certificate/${self:custom.current_regional_certificate_id}
+
+        DNSRecordSet:
+          Type: AWS::Route53::RecordSet
+          Properties:
+            Name: "${self:custom.service_domain_name}."
+            HostedZoneName: "${self:custom.hosted_zone_domain_name}."
+            Type: A
+            Region: ${self:provider.region}
+            SetIdentifier: "${self:service.name}-${self:provider.stage}-${self:provider.region}"
+            AliasTarget:
+              DNSName: "#{ApiGatewayCustomDomainName.RegionalDomainName}"
+              HostedZoneId: "#{ApiGatewayCustomDomainName.RegionalHostedZoneId}"
+              EvaluateTargetHealth: true

@@ -1,0 +1,23 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[requires]
+python_version = "3.6"
+
+[packages]
+"boto3" = "*"
+pyjwt = "*"
+sentry_sdk = "*"
+logmatic-python = "*"
+aws-xray-sdk = "*"
+
+[dev-packages]
+ipython = "*"
+pytest = "*"
+pytest-mock = "*"
+pytest-cov = "*"
+sphinx = "*"
+moto = "*"
+ipdb = "*"

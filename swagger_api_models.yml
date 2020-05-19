@@ -1,0 +1,32 @@
+info:
+  version: '1'
+  title: 'Example API'
+  description: 'An example API built using the Serverless Framework'
+models:
+  -
+    name: "Greeting"
+    description: "An object that represents a friendly greeting"
+    contentType: "application/json"
+    schema:
+      type: object
+      properties:
+        phrase:
+          type: string
+        is_personalized:
+          type: boolean
+      required:
+        - phrase
+        - is_personalized
+  -
+    name: "ErrorResponse"
+    description: "Represents errors"
+    contentType: "application/json"
+    schema:
+      type: object
+      properties:
+        description:
+          type: string
+        error:
+          type: string
+      required:
+        - error

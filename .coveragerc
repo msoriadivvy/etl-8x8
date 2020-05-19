@@ -1,0 +1,12 @@
+[run]
+branch : True
+omit : */virtualenv/*
+       */virtualenvs/*
+       */venv/*
+       tests/*
+
+[report]
+exclude_lines = def __repr__
+
+[tool:pytest]
+addopts = --cov=

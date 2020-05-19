@@ -1,0 +1,20 @@
+log_level: "DEBUG"
+api_gateway_log_full_execution_data: true
+enable_tracing: true
+thor_secret_key_path: "/thor/preproduction/secret_key"
+sentry_dsn: ""
+cors_config:
+  origins:
+    - "http://localhost:*"
+    - "https://*.divvytwo.com"
+  headers:
+    - Content-Type
+    - X-Amz-Date
+    - Authorization
+    - X-Api-Key
+    - X-Amz-Security-Token
+    - X-Amz-User-Agent
+  allowCredentials: false
+hosted_zone_domain_name: staging.divvytwo.com
+regional_acm_certificate_ids:
+  us-west-2: "8e0de2b1-31cf-42a3-8672-ab0a76ec5cef"

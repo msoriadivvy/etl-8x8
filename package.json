@@ -1,0 +1,28 @@
+{
+  "name": "sls-python-aws-template",
+  "version": "1.0.0",
+  "description": "",
+  "main": "serverless.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "sls-deploy": "SLS_DEBUG=* serverless deploy --verbose --prefix \"`id -un`-\"",
+    "sls-remove": "SLS_DEBUG=* serverless remove --verbose --prefix \"`id -un`-\""
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "minimist": "^1.2.0",
+    "serverless": "^1.53.0",
+    "serverless-aws-documentation": "^1.1.0",
+    "serverless-iam-roles-per-function": "^2.0.2",
+    "serverless-plugin-bind-deployment-id": "^1.1.0",
+    "serverless-pseudo-parameters": "^2.4.0",
+    "serverless-python-requirements": "^5.0.0",
+    "serverless-reqvalidator-plugin": "^1.0.3",
+    "yaml-boost": "^1.9.17"
+  }
+}
