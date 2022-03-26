@@ -15,7 +15,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "minimist": "^1.2.0",
+    "minimist": "^1.2.6",
     "serverless": "^1.53.0",
     "serverless-aws-documentation": "^1.1.0",
     "serverless-iam-roles-per-function": "^2.0.2",
