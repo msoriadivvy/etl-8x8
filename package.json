@@ -16,7 +16,7 @@
   "license": "ISC",
   "dependencies": {
     "minimist": "^1.2.0",
-    "serverless": "^1.53.0",
+    "serverless": "^3.25.1",
     "serverless-aws-documentation": "^1.1.0",
     "serverless-iam-roles-per-function": "^2.0.2",
     "serverless-plugin-bind-deployment-id": "^1.1.0",
